@@ -6,9 +6,21 @@
 
 > 南京大学化学化工学院 潘孔嘉 改进版 | 2025.06
 
-## 快速开始（Web 版）
+## 两个版本
+
+| 版本 | 链接 | 原理 | 需要安装 | 模型文件 |
+|------|------|------|:--:|:--:|
+| **网络版**（推荐他人使用） | [Gitee Pages](https://iodine-trichloride.gitee.io/titration-web) | HSV 色彩分析 | 无需安装 | 不需要 |
+| **本地版**（高精度） | 本仓库 | PyTorch ResNet34 AI | Python + 依赖 | [下载模型](https://gitee.com/iodine-trichloride/ai-titration/releases) |
+
+- **网络版**：Chrome/Edge 浏览器打开即用，Web Serial API 控制蠕动泵，HSV 色彩空间实时分析。适合分享给同学、老师直接使用。
+- **本地版**：PyTorch 深度学习模型，识别精度更高，功能更完整。适合自己做实验。
+
+## 快速开始（本地版）
 
 双击 `run.bat` 即可一键启动，浏览器会自动打开 http://localhost:5000。
+
+> 模型权重文件需从 [Releases](https://gitee.com/iodine-trichloride/ai-titration/releases) 下载后放入 `pths/` 目录。
 
 ```
 local-server/
