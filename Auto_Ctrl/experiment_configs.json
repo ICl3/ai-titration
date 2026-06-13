@@ -1,0 +1,32 @@
+{
+    "methyl_orange": {
+        "name": "酸碱滴定 - 甲基橙指示剂",
+        "description": "盐酸滴定氢氧化钠，甲基橙由黄变橙",
+        "weights_path": "../pths/Acid-Base_Methyl_Orange.pth",
+        "class_json_path": "class_indices.json",
+        "endpoint_color": "orange",
+        "titrate_speed_rpm": 2.0,
+        "confidence_threshold": 0.5,
+        "cycle_interval_sec": 0.5
+    },
+    "ebt": {
+        "name": "配位滴定 - 铬黑T指示剂",
+        "description": "EDTA滴定自来水，铬黑T由紫变蓝",
+        "weights_path": "../pths/Coordination_Eriochrome_Black_T.pth",
+        "class_json_path": "EBT.json",
+        "endpoint_color": "blue",
+        "titrate_speed_rpm": 2.0,
+        "confidence_threshold": 0.5,
+        "cycle_interval_sec": 0.5
+    },
+    "precipitation": {
+        "name": "沉淀滴定 - 铬酸钾指示剂",
+        "description": "硝酸银滴定氯化钠，铬酸钾指示剂",
+        "weights_path": "../pths/Precipitation_K2CrO4Net.pth",
+        "class_json_path": "class_indices.json",
+        "endpoint_color": "orange",
+        "titrate_speed_rpm": 2.0,
+        "confidence_threshold": 0.5,
+        "cycle_interval_sec": 0.5
+    }
+}

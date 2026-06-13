@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Experiment data (user-generated, not code)
+Auto_Ctrl/Input/*
+Auto_Ctrl/Output/*
+Input/*
+Output/*
+
+# Model weight files (too large for repo, download from Releases)
+*.pth
+
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Test outputs
+test_result.txt
+
+# Claude / AI assistant
+.claude/
+
+# Executable / binary
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Old versions (duplicate code)
+MAT_1.2.2_exe可执行文件/
+MATv1.2.2/
+
+# Third-party tools
+sscom32/
+
+# Duplicate model weights (only pths/ is authoritative)
+Auto_Ctrl/*.pth
+Picture_Train/*.pth
+
+# Training data (too large, user provides their own)
+Picture_Train/data/
+Picture_Train/data_new/
+
+# Login config
+Auto_Ctrl/login/
+
+# Empty init
+__init__.py
