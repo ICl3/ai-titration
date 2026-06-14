@@ -368,10 +368,10 @@ class TitrationExperiment:
 
         dir_val = DIR_CW if direction == 'cw' else DIR_CCW
         dir_name = '顺时针(吸液)' if direction == 'cw' else '逆时针(排液)'
-        self._log("info", f"排气泡: {dir_name}, {duration_sec}秒, 60 rpm")
+        self._log("info", f"排气泡: {dir_name}, {duration_sec}秒, 50 rpm")
 
         try:
-            speed = self._speed_to_oem(60)
+            speed = self._speed_to_oem(50)
             # 查询泵初始状态
             init_state = _oem_rj(self.pump_ser)
             if init_state is not None:
@@ -409,7 +409,7 @@ class TitrationExperiment:
                     on_tick(remaining)
                 time.sleep(0.5)
             try:
-                speed = self._speed_to_oem(60)
+                speed = self._speed_to_oem(50)
                 _oem_wj(self.pump_ser, speed, RUN_OFF, dir_val)
                 time.sleep(0.1)
                 _oem_wj(self.pump_ser, speed, RUN_OFF, dir_val)
