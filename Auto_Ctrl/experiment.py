@@ -372,24 +372,26 @@ class TitrationExperiment:
 
         try:
             speed = self._speed_to_oem(60)
-            # 两步操作：先设速度（停止态），再启动。泵在速度大幅变化时需要分开操作
+            # 查询泵初始状态
+            init_state = _oem_rj(self.pump_ser)
+            if init_state is not None:
+                self._log("info", f"泵初始状态: speed={init_state[0]/100:.2f}rpm run={init_state[1]} dir={init_state[2]}")
+            # 两步操作：先设速度（停止态），再启动
             _oem_wj(self.pump_ser, speed, RUN_OFF, dir_val)
-            time.sleep(0.15)
+            time.sleep(0.2)
             _oem_wj(self.pump_ser, speed, RUN_ON, dir_val)
-            time.sleep(0.15)
+            time.sleep(0.2)
+            # 验证泵状态（诊断用，不阻断操作）
             result = _oem_rj(self.pump_ser)
             if result is not None:
-                _, run_state, _ = result
+                spd, run_state, cur_dir = result
+                self._log("info", f"泵当前状态: speed={spd/100:.2f}rpm run={run_state} dir={cur_dir}")
                 if run_state & 0x01:
                     self._log("info", "排气泡泵已启动")
                 else:
-                    self._log("error", "泵发送了启动命令但泵未运行! 请检查泵接线和电源")
-                    self._purge_running = False
-                    if on_done:
-                        on_done(False, "泵未响应启动命令")
-                    return
+                    self._log("warning", f"泵状态查询返回 run=0（未运行），但已发送启动命令。若泵实际未转动，请检查泵面板最大转速设置")
             else:
-                self._log("warning", "排气泡泵启动命令已发送但无法验证状态")
+                self._log("warning", "无法读取泵状态，但已发送启动命令")
             if on_start:
                 on_start(duration_sec, dir_name)
         except Exception as e:
