@@ -81,8 +81,12 @@ def _oem_wj(ser, speed, run_state, direction, addr=OEM_ADDR):
     fcs = _oem_fcs(raw)
     frame = bytes([0xE9]) + raw + bytes([fcs])
     ser.reset_input_buffer()
-    ser.write(frame)
+    bytes_written = ser.write(frame)
     ser.flush()
+    if bytes_written != len(frame):
+        raise RuntimeError(
+            f"泵写入失败: 期望写入 {len(frame)} 字节, 实际写入 {bytes_written} 字节"
+        )
     time.sleep(0.05)
 
 
@@ -121,6 +125,7 @@ class TitrationExperiment:
         self.device = None
 
         self.running = False
+        self._purge_running = False
         self.finished = False
         self.total_volume = 0
         self.volume_list = []
@@ -355,18 +360,37 @@ class TitrationExperiment:
             if on_done:
                 on_done(False, "实验进行中，请先停止实验再排气泡")
             return
+        if self._purge_running:
+            if on_done:
+                on_done(False, "排气泡已在运行中，请等待当前操作完成")
+            return
+        self._purge_running = True
 
         dir_val = DIR_CW if direction == 'cw' else DIR_CCW
         dir_name = '顺时针(吸液)' if direction == 'cw' else '逆时针(排液)'
         self._log("info", f"排气泡: {dir_name}, {duration_sec}秒, 60 rpm")
 
         try:
-            _oem_wj(self.pump_ser, SPEED_EXTRACT, RUN_ON, dir_val)
-            self._log("info", "排气泡泵已启动")
+            speed = self._speed_to_oem(60)
+            _oem_wj(self.pump_ser, speed, RUN_ON, dir_val)
+            result = _oem_rj(self.pump_ser)
+            if result is not None:
+                _, run_state, _ = result
+                if run_state & 0x01:
+                    self._log("info", "排气泡泵已启动")
+                else:
+                    self._log("error", "泵发送了启动命令但泵未运行! 请检查泵接线和电源")
+                    self._purge_running = False
+                    if on_done:
+                        on_done(False, "泵未响应启动命令")
+                    return
+            else:
+                self._log("warning", "排气泡泵启动命令已发送但无法验证状态")
             if on_start:
                 on_start(duration_sec, dir_name)
         except Exception as e:
             self._log("error", f"排气泡启动失败: {e}")
+            self._purge_running = False
             if on_done:
                 on_done(False, str(e))
             return
@@ -379,9 +403,10 @@ class TitrationExperiment:
                     on_tick(remaining)
                 time.sleep(0.5)
             try:
-                _oem_wj(self.pump_ser, SPEED_EXTRACT, RUN_OFF, dir_val)
+                speed = self._speed_to_oem(60)
+                _oem_wj(self.pump_ser, speed, RUN_OFF, dir_val)
                 time.sleep(0.1)
-                _oem_wj(self.pump_ser, SPEED_EXTRACT, RUN_OFF, dir_val)
+                _oem_wj(self.pump_ser, speed, RUN_OFF, dir_val)
                 self._log("info", "排气泡完成，泵已停止")
                 if on_done:
                     on_done(True, "排气泡完成")
@@ -389,6 +414,8 @@ class TitrationExperiment:
                 self._log("error", f"排气泡停止失败: {e}")
                 if on_done:
                     on_done(False, str(e))
+            finally:
+                self._purge_running = False
 
         threading.Thread(target=_purge_timer, daemon=True).start()
 

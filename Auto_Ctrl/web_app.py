@@ -196,6 +196,14 @@ def handle_purge_bubbles(data):
         emit('purge_status', {'ok': False, 'message': '实验进行中，请先停止实验再排气泡'})
         return
 
+    if exp.pump_ser is None:
+        exp.connect_pump()
+
+    if exp.pump_ser is None:
+        emit('purge_status', {'ok': False, 'status': 'done',
+              'message': '蠕动泵未连接，无法排气泡。请检查泵接线和电源'})
+        return
+
     direction = data.get('direction', 'ccw')
     duration_sec = data.get('duration_sec', 10)
     if duration_sec < 1:
