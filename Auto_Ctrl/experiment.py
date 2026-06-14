@@ -11,6 +11,7 @@ import numpy as np
 from datetime import datetime
 from scipy.optimize import curve_fit
 from model import resnet34
+from hsv_analyzer import HSVColorAnalyzer
 import Find_COM
 
 
@@ -136,6 +137,10 @@ class TitrationExperiment:
         self.endpoint_color = "orange"
         self.cycle_interval = 0.5
         self.double_confirm = True
+        self.detection_mode = "dl"
+        self.hsv_analyzer = None
+        self.hsv_confidence_threshold = 0.35
+        self.endpoint_streak_frames = 2
 
         self.on_update = None
         self.on_log = None
@@ -246,6 +251,9 @@ class TitrationExperiment:
     # ---- 模型加载 ----
 
     def load_model(self, weights_path, class_json_path):
+        if self.detection_mode == "hsv":
+            self._log("info", "HSV 模式，跳过深度学习模型加载")
+            return
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self._log("info", f"使用设备: {self.device}")
 
@@ -285,6 +293,14 @@ class TitrationExperiment:
             predict_cla = torch.argmax(predict).numpy()
         color = self.class_indict[str(predict_cla)]
         confidence = float(predict[predict_cla].numpy())
+        return color, confidence
+
+    def analyze_color_hsv(self, image_path):
+        """使用 HSV 色彩空间分析颜色（无需深度学习模型）。"""
+        if self.hsv_analyzer is None:
+            self._log("error", "HSV 分析器未初始化")
+            return self.endpoint_color, 0.0
+        color, confidence = self.hsv_analyzer.analyze_image(image_path)
         return color, confidence
 
     # ---- 泵控制 ----
@@ -327,6 +343,56 @@ class TitrationExperiment:
         except Exception as e:
             self._log("error", f"泵停止失败: {e}")
 
+    def purge_bubbles(self, direction, duration_sec, on_start=None, on_tick=None, on_done=None):
+        """排气泡：高速运转泵指定时长后自动停止。
+        direction: 'ccw'（逆时针/排液）或 'cw'（顺时针/吸液）
+        duration_sec: 运行秒数
+        """
+        if self.pump_ser is None:
+            if on_done:
+                on_done(False, "蠕动泵未连接，无法排气泡")
+            return
+        if self.running:
+            if on_done:
+                on_done(False, "实验进行中，请先停止实验再排气泡")
+            return
+
+        dir_val = DIR_CW if direction == 'cw' else DIR_CCW
+        dir_name = '顺时针(吸液)' if direction == 'cw' else '逆时针(排液)'
+        self._log("info", f"排气泡: {dir_name}, {duration_sec}秒, 60 rpm")
+
+        try:
+            _oem_wj(self.pump_ser, SPEED_EXTRACT, RUN_ON, dir_val)
+            self._log("info", "排气泡泵已启动")
+            if on_start:
+                on_start(duration_sec, dir_name)
+        except Exception as e:
+            self._log("error", f"排气泡启动失败: {e}")
+            if on_done:
+                on_done(False, str(e))
+            return
+
+        def _purge_timer():
+            start = time.time()
+            while time.time() - start < duration_sec:
+                remaining = duration_sec - int(time.time() - start)
+                if on_tick:
+                    on_tick(remaining)
+                time.sleep(0.5)
+            try:
+                _oem_wj(self.pump_ser, SPEED_EXTRACT, RUN_OFF, dir_val)
+                time.sleep(0.1)
+                _oem_wj(self.pump_ser, SPEED_EXTRACT, RUN_OFF, dir_val)
+                self._log("info", "排气泡完成，泵已停止")
+                if on_done:
+                    on_done(True, "排气泡完成")
+            except Exception as e:
+                self._log("error", f"排气泡停止失败: {e}")
+                if on_done:
+                    on_done(False, str(e))
+
+        threading.Thread(target=_purge_timer, daemon=True).start()
+
     # ---- pH计读数 ----
 
     def read_voltage(self):
@@ -355,7 +421,18 @@ class TitrationExperiment:
 
     # ---- 主实验循环 ----
 
-    def run_experiment_loop(self):
+    def run_experiment_loop(self, detection_mode=None, hsv_config=None):
+        if detection_mode:
+            self.detection_mode = detection_mode
+        self._log("info", f"检测模式: {self.detection_mode}")
+
+        if self.detection_mode in ("hsv", "hybrid"):
+            if hsv_config is None:
+                hsv_config = {}
+            hsv_config.setdefault("endpoint_color", self.endpoint_color)
+            self.hsv_analyzer = HSVColorAnalyzer(hsv_config)
+            self._log("info", "HSV 分析器已初始化")
+
         self.running = True
         self.finished = False
         self.total_volume = 0
@@ -403,8 +480,25 @@ class TitrationExperiment:
                     continue
 
                 self._log("info", "开始AI识别...")
-                self.current_color, self.current_confidence = self.predict_image(filepath)
-                self._log("info", f"识别结果: {self.current_color} ({self.current_confidence:.3f})")
+                if self.detection_mode == "hsv":
+                    self.current_color, self.current_confidence = self.analyze_color_hsv(filepath)
+                    self._log("info", f"HSV识别结果: {self.current_color} ({self.current_confidence:.3f})")
+                elif self.detection_mode == "hybrid":
+                    dl_color, dl_conf = self.predict_image(filepath)
+                    self._log("info", f"DL识别: {dl_color} ({dl_conf:.3f})")
+                    hsv_color, hsv_conf = self.analyze_color_hsv(filepath)
+                    self._log("info", f"HSV识别: {hsv_color} ({hsv_conf:.3f})")
+                    # 混合模式：DL 为主，两者一致时取 DL 结果，不一致时降低置信度
+                    if dl_color == hsv_color:
+                        self.current_color = dl_color
+                        self.current_confidence = max(dl_conf, hsv_conf)
+                    else:
+                        self.current_color = dl_color
+                        self.current_confidence = dl_conf * 0.7  # 降权
+                        self._log("warning", f"DL与HSV结果不一致，降低置信度")
+                else:
+                    self.current_color, self.current_confidence = self.predict_image(filepath)
+                    self._log("info", f"识别结果: {self.current_color} ({self.current_confidence:.3f})")
 
                 self.confidence_list.append(round(self.current_confidence, 4))
 
@@ -477,7 +571,13 @@ class TitrationExperiment:
             self.finished = True
             self.running = False
             if self.on_update:
-                self.on_update({'status': 'finished'})
+                self.on_update({
+                    'status': 'finished',
+                    'volume_list': self.volume_list,
+                    'voltage_list': self.voltage_list,
+                    'color_list': self.color_list,
+                    'confidence_list': self.confidence_list,
+                })
             self._log("info", "实验结束")
 
     # ---- 结果保存 ----

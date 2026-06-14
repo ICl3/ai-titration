@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 滴定控制系统 - 实验控制</title>
+<script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js"></script>
+<!-- Chart.js 多级容灾：国内CDN → 国际CDN → 本地 -->
+<script src="https://cdn.bootcdn.net/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+if (typeof Chart === 'undefined') {
+    document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"><\/script>');
+}
+</script>
+<script>
+if (typeof Chart === 'undefined') {
+    var s = document.createElement('script');
+    s.src = '{{ url_for("static", filename="js/chart.umd.min.js") }}';
+    document.head.appendChild(s);
+    console.warn('CDN加载失败，使用本地Chart.js');
+}
+</script>
+<style>
+/* ── 设计令牌（自包含，无需外部 CSS） ── */
+:root {
+  --header-height: 64px;
+  --container-max: 1440px;
+  --color-bg-page: #fdfdfd;
+  --color-bg-elevated: #f9f9f9;
+  --color-bg-card: #fff;
+  --color-bg-hero: #f5f5f5;
+  --color-bg-header: #080807;
+  --color-fill: #dfdfdf;
+  --color-fill-secondary: #efefef;
+  --color-text-base: #0f0d0c;
+  --color-text-secondary: #636261;
+  --color-text-tertiary: #838280;
+  --color-text-quaternary: #8e8c8b;
+  --color-text-header: #fff;
+  --color-text-header-secondary: #95958f;
+  --color-border-header: #1a1917;
+  --color-border-header-tertiary: #2a2926;
+  --color-fill-header-hover: #1a1917;
+  --color-tag-text: #2adb5c;
+  --color-tag-bg: #242a28;
+  --color-primary: #8ee5a1;
+  --color-primary-hover: #73cd94;
+  --color-primary-bg: #f1faf3;
+  --color-primary-text-active: #73cd94;
+  --color-primary-text: #141414;
+  --color-border: #d9d9d9;
+  --color-border-secondary: #ddd;
+  --font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-size: 14px;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-pill: 9999px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--font-size);
+  color: var(--color-text-base);
+  background: var(--color-bg-page);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Header ── */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--header-height);
+  padding: 0 40px;
+  background: var(--color-bg-header);
+  border-bottom: 1px solid var(--color-border-header);
+}
+
+.app-header h1 {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--color-text-header);
+  letter-spacing: -0.01em;
+}
+
+.app-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mode-badge {
+  display: none;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  border-radius: var(--radius-pill);
+}
+
+.mode-normal {
+  color: var(--color-tag-text);
+  background: var(--color-tag-bg);
+}
+
+.mode-sim {
+  color: #ffb74d;
+  background: rgba(255, 183, 77, 0.12);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-header-secondary);
+  background: var(--color-fill-header-hover);
+  border: 1px solid var(--color-border-header-tertiary);
+  border-radius: var(--radius-pill);
+}
+
+.status-pill .dot-live {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
+/* ── Layout ── */
+.app-main {
+  max-width: var(--container-max);
+  margin: 0 auto;
+  padding: 24px 40px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.dashboard {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.left-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.right-panel {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Cards ── */
+.card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border-secondary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.card-padded {
+  padding: 20px 24px;
+}
+
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--color-text-base);
+  margin-bottom: 16px;
+}
+
+/* ── Camera ── */
+.camera-box {
+  position: relative;
+  background: var(--color-bg-hero);
+  border: 1px solid var(--color-border-secondary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.camera-box img {
+  width: 100%;
+  display: block;
+  min-height: 380px;
+  object-fit: contain;
+  background: #0f0d0c;
+}
+
+.camera-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 380px;
+  color: var(--color-text-tertiary);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+/* ── Metrics ── */
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.metric-card {
+  padding: 18px 20px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border-secondary);
+  border-radius: var(--radius-md);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.metric-card .label {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  color: var(--color-text-tertiary);
+  margin-bottom: 6px;
+}
+
+.metric-card .value {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 32px;
+  color: var(--color-text-base);
+  letter-spacing: -0.02em;
+}
+
+.metric-card .value-sm {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+.color-yellow { color: #c9a000; }
+.color-orange { color: #e65100; }
+.color-blue { color: #2e6db5; }
+.color-purple { color: #7b1fa2; }
+
+.confidence-bar {
+  height: 4px;
+  background: var(--color-fill-secondary);
+  border-radius: var(--radius-pill);
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.confidence-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  transition: width 0.3s ease;
+  background: linear-gradient(90deg, var(--color-primary-hover), var(--color-primary));
+}
+
+.confidence-label {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--color-text-quaternary);
+}
+
+.endpoint-flash {
+  animation: endpoint-pulse 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes endpoint-pulse {
+  from {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 0 rgba(142, 229, 161, 0.35);
+  }
+  to {
+    border-color: var(--color-primary-hover);
+    box-shadow: 0 0 0 6px rgba(142, 229, 161, 0.12);
+  }
+}
+
+/* ── Form ── */
+.form-group {
+  margin-bottom: 14px;
+}
+
+.form-group:last-of-type { margin-bottom: 0; }
+
+.form-group label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--color-text-secondary);
+  margin-bottom: 6px;
+}
+
+.form-group select {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--color-text-base);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color 0.2s;
+  cursor: pointer;
+}
+
+.form-group select:hover,
+.form-group select:focus {
+  border-color: var(--color-text-tertiary);
+}
+
+.form-group input[type="range"] {
+  width: 100%;
+  height: 4px;
+  accent-color: var(--color-primary-hover);
+  cursor: pointer;
+}
+
+.range-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary-text-active);
+}
+
+.desc-text {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--color-text-quaternary);
+  margin-top: 4px;
+}
+
+/* ── Buttons ── */
+.btn-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  line-height: 20px;
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: opacity 0.2s, background 0.2s, transform 0.15s;
+}
+
+.btn:hover:not(:disabled) { opacity: 0.92; }
+.btn:active:not(:disabled) { transform: scale(0.98); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-connect {
+  color: var(--color-text-base);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border-secondary);
+}
+
+.btn-connect:hover:not(:disabled) {
+  background: var(--color-fill-secondary);
+}
+
+.btn-start {
+  color: var(--color-primary-text);
+  background: var(--color-primary);
+}
+
+.btn-start:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.btn-stop {
+  color: #fff;
+  background: #c62828;
+}
+
+.btn-stop:hover:not(:disabled) {
+  background: #b71c1c;
+}
+
+.btn-muted {
+  color: var(--color-text-tertiary);
+  background: var(--color-fill-secondary);
+  margin-top: 4px;
+}
+
+.btn-muted:hover:not(:disabled) {
+  color: var(--color-text-secondary);
+  background: var(--color-fill);
+}
+
+/* ── Hardware status ── */
+.hw-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hw-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  color: var(--color-text-secondary);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-ok { background: var(--color-primary-hover); box-shadow: 0 0 0 3px var(--color-primary-bg); }
+.dot-off { background: var(--color-fill); }
+.dot-err { background: #e53935; }
+
+/* ── Bottom ── */
+.bottom-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.chart-box {
+  padding: 20px 24px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border-secondary);
+  border-radius: var(--radius-md);
+}
+
+.chart-box .card-title { margin-bottom: 12px; }
+
+.chart-box canvas {
+  width: 100% !important;
+  height: 260px !important;
+}
+
+.log-box {
+  padding: 16px 20px;
+  max-height: 160px;
+  overflow-y: auto;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-secondary);
+  border-radius: var(--radius-md);
+}
+
+.log-box .log-info { color: #2e6db5; }
+.log-box .log-warning { color: #e65100; }
+.log-box .log-error { color: #c62828; }
+.log-box .log-success { color: var(--color-primary-text-active); }
+
+/* ── Shutdown screen ── */
+.shutdown-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-page);
+}
+
+@media (max-width: 1100px) {
+  .dashboard { flex-direction: column; }
+  .right-panel { width: 100%; }
+  .metrics-row { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .app-header { padding: 0 20px; height: 60px; }
+  .app-main { padding: 16px 20px 32px; }
+  .metrics-row { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>AI 滴定控制系统</h1>
+  <div class="app-header-meta">
+    <div class="nav-links" style="display:flex;gap:16px;margin-right:16px;">
+      <a href="/" style="color:#95958f;text-decoration:none;font-size:13px;">项目介绍</a>
+      <a href="/app" style="color:#fff;text-decoration:none;font-size:13px;font-weight:500;">实验控制</a>
+    </div>
+    <span class="status-pill" id="status-pill" title="实验状态">
+      <span class="dot-live"></span>
+      <span id="header-status">待机</span>
+    </span>
+    <span id="mode-badge" class="mode-badge"></span>
+  </div>
+</header>
+
+<main class="app-main">
+  <div class="dashboard">
+    <div class="left-panel">
+      <div class="camera-box">
+        <img id="camera-feed" src="/video_feed" alt="摄像头画面" style="display:none;" />
+        <div id="camera-placeholder" class="camera-placeholder">摄像头未连接</div>
+      </div>
+      <div class="metrics-row">
+        <div class="metric-card" id="card-color">
+          <div class="label">AI 识别结果</div>
+          <div class="value" id="color-value">--</div>
+        </div>
+        <div class="metric-card" id="card-confidence">
+          <div class="label">置信度</div>
+          <div class="value" id="confidence-big">0.000</div>
+          <div class="confidence-bar"><div class="confidence-fill" id="confidence-fill" style="width:0%"></div></div>
+        </div>
+        <div class="metric-card">
+          <div class="label">当前体积 (滴)</div>
+          <div class="value" id="volume-value">0</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">实验状态</div>
+          <div class="value value-sm" id="exp-status">待机</div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="right-panel">
+      <section class="card card-padded">
+        <h2 class="card-title">实验设置</h2>
+        <div class="form-group">
+          <label>实验类型</label>
+          <select id="config-select">
+            <option value="">加载中...</option>
+          </select>
+          <div class="desc-text" id="config-desc"></div>
+        </div>
+        <div class="form-group">
+          <label>泵速 (rpm) <span class="range-value" id="speed-val">20.0</span></label>
+          <input type="range" id="speed-slider" min="0.5" max="5.0" step="0.1" value="2.0" />
+        </div>
+        <div class="form-group">
+          <label>置信度阈值 <span class="range-value" id="conf-val">0.50</span></label>
+          <input type="range" id="confidence-slider" min="0.3" max="0.9" step="0.05" value="0.5" />
+        </div>
+        <div class="form-group">
+          <label>循环间隔</label>
+          <select id="cycle-select">
+            <option value="0.5" selected>0.5 秒（推荐）</option>
+            <option value="1.0">1.0 秒</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>摄像头选择</label>
+          <select id="camera-select">
+            <option value="">检测中...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>检测模式</label>
+          <select id="detection-mode-select">
+            <option value="dl">深度学习 (AI 模型)</option>
+            <option value="hsv">HSV 色彩分析 (无需 GPU)</option>
+            <option value="hybrid">混合模式 (DL + HSV)</option>
+          </select>
+          <div class="desc-text" id="mode-desc">使用 ResNet34 深度学习模型进行颜色识别</div>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-connect" id="btn-connect" onclick="connectHardware()">连接硬件</button>
+          <button class="btn btn-connect" id="btn-purge" onclick="openPurgeDialog()" disabled>排气泡</button>
+          <button class="btn btn-start" id="btn-start" onclick="startExperiment()" disabled>开始实验</button>
+          <button class="btn btn-stop" id="btn-stop" onclick="stopExperiment()" disabled>停止实验</button>
+          <button class="btn btn-connect" id="btn-download" onclick="downloadData()" disabled>下载实验数据</button>
+          <button class="btn btn-muted" id="btn-shutdown" onclick="shutdownSystem()">关闭系统</button>
+        </div>
+      </section>
+      <section class="card card-padded">
+        <h2 class="card-title">硬件状态</h2>
+        <div class="hw-status">
+          <div class="hw-item"><span class="dot dot-off" id="dot-camera"></span> 摄像头</div>
+          <div class="hw-item"><span class="dot dot-off" id="dot-pump"></span> 蠕动泵</div>
+          <div class="hw-item"><span class="dot dot-off" id="dot-ph"></span> pH计</div>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <div class="bottom-panel">
+    <div class="chart-box">
+      <h2 class="card-title">滴定曲线</h2>
+      <canvas id="titration-chart"></canvas>
+    </div>
+    <div class="log-box" id="log-panel" role="log" aria-live="polite"></div>
+  </div>
+</main>
+
+<script>
+const socket = io();
+
+const elCameraFeed = document.getElementById('camera-feed');
+const elCameraPlaceholder = document.getElementById('camera-placeholder');
+const elColorValue = document.getElementById('color-value');
+const elConfidenceBig = document.getElementById('confidence-big');
+const elConfidenceFill = document.getElementById('confidence-fill');
+const elCardColor = document.getElementById('card-color');
+const elVolumeValue = document.getElementById('volume-value');
+const elExpStatus = document.getElementById('exp-status');
+const elHeaderStatus = document.getElementById('header-status');
+const elConfigSelect = document.getElementById('config-select');
+const elConfigDesc = document.getElementById('config-desc');
+const elSpeedSlider = document.getElementById('speed-slider');
+const elSpeedVal = document.getElementById('speed-val');
+const elConfSlider = document.getElementById('confidence-slider');
+const elConfVal = document.getElementById('conf-val');
+const elCycleSelect = document.getElementById('cycle-select');
+const elBtnConnect = document.getElementById('btn-connect');
+const elBtnStart = document.getElementById('btn-start');
+const elBtnStop = document.getElementById('btn-stop');
+const elLogPanel = document.getElementById('log-panel');
+const elModeBadge = document.getElementById('mode-badge');
+const elCameraSelect = document.getElementById('camera-select');
+const elDetectionMode = document.getElementById('detection-mode-select');
+const elModeDesc = document.getElementById('mode-desc');
+const elBtnPurge = document.getElementById('btn-purge');
+const elBtnDownload = document.getElementById('btn-download');
+
+function syncHeaderStatus(text) {
+  elHeaderStatus.textContent = text;
+}
+
+elSpeedSlider.oninput = function() { elSpeedVal.textContent = (parseFloat(this.value) * 10).toFixed(1); };
+elConfSlider.oninput = function() { elConfVal.textContent = parseFloat(this.value).toFixed(2); };
+
+elDetectionMode.onchange = function() {
+    const descs = {
+        'dl': '使用 ResNet34 深度学习模型进行颜色识别，需加载模型权重',
+        'hsv': '使用 HSV 色彩空间分析，无需 GPU 和模型文件',
+        'hybrid': 'DL 为主 + HSV 交叉验证，结果更可靠'
+    };
+    elModeDesc.textContent = descs[this.value] || '';
+};
+
+fetch('/api/configs').then(r => r.json()).then(configs => {
+    elConfigSelect.innerHTML = '';
+    for (const [id, cfg] of Object.entries(configs)) {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = cfg.name;
+        elConfigSelect.appendChild(opt);
+    }
+    updateConfigDesc();
+});
+elConfigSelect.onchange = updateConfigDesc;
+
+function updateConfigDesc() {
+    const opt = elConfigSelect.selectedOptions[0];
+    elConfigDesc.textContent = opt ? opt.textContent : '';
+}
+
+fetch('/api/cameras').then(r => r.json()).then(cameras => {
+    elCameraSelect.innerHTML = '';
+    if (cameras.length === 0) {
+        elCameraSelect.innerHTML = '<option value="">未检测到摄像头</option>';
+        return;
+    }
+    cameras.forEach(cam => {
+        const opt = document.createElement('option');
+        opt.value = cam.index;
+        opt.textContent = `摄像头 ${cam.index} (${cam.width}×${cam.height})`;
+        elCameraSelect.appendChild(opt);
+    });
+    if (cameras.length > 1) {
+        elCameraSelect.value = cameras[cameras.length - 1].index;
+    }
+}).catch(() => {
+    elCameraSelect.innerHTML = '<option value="">检测失败</option>';
+});
+
+elCameraFeed.onerror = function() {
+    this.style.display = 'none';
+    elCameraPlaceholder.style.display = 'flex';
+};
+elCameraFeed.onload = function() {
+    this.style.display = 'block';
+    elCameraPlaceholder.style.display = 'none';
+};
+
+socket.on('hardware_status', function(data) {
+    setDot('dot-camera', data.camera);
+    setDot('dot-pump', data.pump);
+    setDot('dot-ph', data.ph_meter);
+
+    elCameraPlaceholder.textContent = data.camera ? '连接中...' : '摄像头未连接';
+
+    if (data.camera) {
+        elBtnStart.disabled = false;
+        elCameraFeed.src = '/video_feed?' + Date.now();
+    }
+    if (data.pump) {
+        elBtnPurge.disabled = false;
+    }
+
+    const badge = elModeBadge;
+    badge.style.display = 'inline-block';
+    if (data.simulation_mode) {
+        badge.textContent = '模拟模式';
+        badge.className = 'mode-badge mode-sim';
+    } else {
+        badge.textContent = '正常模式';
+        badge.className = 'mode-badge mode-normal';
+    }
+    appendLog('info', '硬件检测完成');
+});
+
+socket.on('experiment_update', function(data) {
+    if (data.status === 'finished') {
+        _lastExperimentData = {
+            volume_list: data.volume_list || [],
+            voltage_list: data.voltage_list || [],
+            color_list: data.color_list || [],
+            confidence_list: data.confidence_list || [],
+            timestamp: new Date().toISOString(),
+            config_id: elConfigSelect.value,
+            detection_mode: elDetectionMode.value
+        };
+        elExpStatus.textContent = '已完成';
+        syncHeaderStatus('已完成');
+        elBtnStart.disabled = false;
+        elBtnStop.disabled = true;
+        elBtnDownload.disabled = false;
+        appendLog('success', '实验已完成');
+        return;
+    }
+    if (data.error) {
+        appendLog('error', '错误: ' + data.error);
+        return;
+    }
+
+    elVolumeValue.textContent = data.volume;
+
+    elColorValue.textContent = data.color;
+    elColorValue.className = 'value color-' + data.color;
+    elConfidenceBig.textContent = data.confidence.toFixed(3);
+    elConfidenceFill.style.width = (data.confidence * 100) + '%';
+
+    elExpStatus.textContent = '运行中';
+    syncHeaderStatus('运行中');
+
+    if (data.is_endpoint) {
+        elCardColor.classList.add('endpoint-flash');
+        appendLog('success', '视觉终点确认! 体积=' + data.volume);
+    } else if (data.pending_endpoint) {
+        elCardColor.classList.add('endpoint-flash');
+        appendLog('warning', '疑似终点，等待二次确认...');
+    } else {
+        elCardColor.classList.remove('endpoint-flash');
+    }
+
+    updateChart(data.volume_list, data.voltage_list, data.color_list, data.confidence_list);
+});
+
+socket.on('log_message', function(data) {
+    appendLog(data.level, data.message);
+});
+
+socket.on('experiment_stopped', function(data) {
+    elExpStatus.textContent = '待机';
+    syncHeaderStatus('待机');
+    elBtnStart.disabled = false;
+    elBtnStop.disabled = true;
+    elBtnPurge.disabled = false;
+    if (_lastExperimentData) elBtnDownload.disabled = false;
+    elCardColor.classList.remove('endpoint-flash');
+    appendLog('info', data.message);
+});
+
+socket.on('shutdown_complete', function() {
+    document.body.innerHTML = '<div class="shutdown-screen">系统已关闭，可以关闭此页面</div>';
+});
+
+function connectHardware() {
+    elBtnConnect.disabled = true;
+    elBtnConnect.textContent = '连接中...';
+    const cameraIdx = elCameraSelect.value !== '' ? parseInt(elCameraSelect.value) : null;
+    socket.emit('connect_hardware', { camera_idx: cameraIdx });
+    setTimeout(() => {
+        elBtnConnect.disabled = false;
+        elBtnConnect.textContent = '重新连接';
+    }, 3000);
+}
+
+function startExperiment() {
+    const configId = elConfigSelect.value;
+    if (!configId) return;
+    socket.emit('start_experiment', {
+        config_id: configId,
+        speed_rpm: parseFloat(elSpeedSlider.value),
+        confidence: parseFloat(elConfSlider.value),
+        cycle_interval: parseFloat(elCycleSelect.value),
+        detection_mode: elDetectionMode.value
+    });
+    elBtnStart.disabled = true;
+    elBtnStop.disabled = false;
+    elBtnPurge.disabled = true;
+    elCardColor.classList.remove('endpoint-flash');
+    syncHeaderStatus('运行中');
+    resetChart();
+}
+
+function stopExperiment() {
+    socket.emit('stop_experiment');
+    elBtnStop.disabled = true;
+}
+
+let _lastExperimentData = null;
+
+function downloadData() {
+    const data = _lastExperimentData;
+    if (!data) {
+        appendLog('warning', '没有可下载的实验数据');
+        return;
+    }
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'titration_' + (data.volume_list ? data.volume_list.length : '0') + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    appendLog('success', '实验数据已下载');
+}
+
+function shutdownSystem() {
+    if (!confirm('确定要关闭系统吗？这将终止服务器进程并关闭实验。')) return;
+    appendLog('warning', '正在关闭系统...');
+    elBtnConnect.disabled = true;
+    elBtnStart.disabled = true;
+    elBtnStop.disabled = true;
+    document.getElementById('btn-shutdown').disabled = true;
+    socket.emit('shutdown_system');
+}
+
+function setDot(id, ok) {
+    const el = document.getElementById(id);
+    el.className = 'dot ' + (ok ? 'dot-ok' : 'dot-off');
+}
+
+function appendLog(level, message) {
+    const time = new Date().toLocaleTimeString();
+    const div = document.createElement('div');
+    div.className = 'log-' + (level === 'success' ? 'success' : level);
+    div.textContent = `[${time}] ${message}`;
+    elLogPanel.appendChild(div);
+    elLogPanel.scrollTop = elLogPanel.scrollHeight;
+}
+
+const chartColors = {
+    text: '#838280',
+    grid: 'rgba(20, 20, 20, 0.06)',
+    voltage: '#c62828',
+    voltageFill: 'rgba(198, 40, 40, 0.08)',
+    confidence: '#2e6db5',
+    confidenceFill: 'rgba(46, 109, 181, 0.08)',
+    color: '#73cd94',
+    primary: '#73cd94'
+};
+
+const ctx = document.getElementById('titration-chart').getContext('2d');
+const chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: [],
+        datasets: [
+            {
+                label: '置信度',
+                data: [],
+                borderColor: chartColors.confidence,
+                backgroundColor: chartColors.confidenceFill,
+                yAxisID: 'y-confidence',
+                pointRadius: 0,
+                borderWidth: 2,
+                tension: 0.3,
+            },
+            {
+                label: '电压 (V)',
+                data: [],
+                borderColor: chartColors.voltage,
+                backgroundColor: chartColors.voltageFill,
+                yAxisID: 'y-voltage',
+                pointRadius: 0,
+                borderWidth: 2,
+                tension: 0.3,
+                hidden: true,
+            },
+            {
+                label: '终点标记',
+                data: [],
+                borderColor: chartColors.color,
+                backgroundColor: chartColors.color,
+                yAxisID: 'y-color',
+                pointRadius: 4,
+                pointBackgroundColor: chartColors.primary,
+                showLine: false,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+            legend: {
+                labels: {
+                    color: chartColors.text,
+                    font: { family: 'system-ui, sans-serif', size: 12 },
+                    boxWidth: 12,
+                    padding: 16
+                }
+            }
+        },
+        scales: {
+            x: {
+                title: { display: true, text: '体积 (滴)', color: chartColors.text, font: { size: 12 } },
+                ticks: { color: chartColors.text, font: { size: 11 } },
+                grid: { color: chartColors.grid }
+            },
+            'y-confidence': {
+                position: 'left',
+                min: 0, max: 1,
+                title: { display: true, text: '置信度', color: chartColors.confidence, font: { size: 12 } },
+                ticks: { color: chartColors.confidence, font: { size: 11 } },
+                grid: { color: chartColors.grid }
+            },
+            'y-voltage': {
+                position: 'left',
+                title: { display: true, text: '电压 (V)', color: chartColors.voltage, font: { size: 12 } },
+                ticks: { color: chartColors.voltage, font: { size: 11 } },
+                grid: { display: false }
+            },
+            'y-color': {
+                position: 'right',
+                min: -0.1, max: 1.1,
+                title: { display: true, text: '终点标记', color: chartColors.color, font: { size: 12 } },
+                ticks: {
+                    color: chartColors.color,
+                    font: { size: 11 },
+                    stepSize: 1,
+                    callback: v => v === 0 ? '未到终点' : v === 1 ? '终点' : ''
+                },
+                grid: { display: false }
+            }
+        }
+    }
+});
+
+function resetChart() {
+    chart.data.labels = [];
+    chart.data.datasets[0].data = [];
+    chart.data.datasets[1].data = [];
+    chart.data.datasets[2].data = [];
+    chart.update('none');
+}
+
+function updateChart(volumes, voltages, colors, confidences) {
+    chart.data.labels = volumes;
+    chart.data.datasets[0].data = confidences || [];
+    chart.data.datasets[1].data = voltages;
+    chart.data.datasets[2].data = colors;
+    chart.update('none');
+}
+
+appendLog('info', '页面已加载，请点击「连接硬件」开始');
+</script>
+
+<!-- 排气泡弹窗 -->
+<div id="purge-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:12px;padding:28px;max-width:380px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+    <h3 style="margin:0 0 16px;font-size:16px;color:#0f0d0c;">排气泡设置</h3>
+    <div class="form-group">
+      <label>方向</label>
+      <select id="purge-direction">
+        <option value="ccw">逆时针（排液 / 排出气泡）</option>
+        <option value="cw">顺时针（吸液 / 回填管路）</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>运行时间（秒）</label>
+      <input type="range" id="purge-duration" min="3" max="30" value="10" step="1" style="width:100%;" />
+      <span style="float:right;font-size:14px;font-weight:600;color:#73cd94;" id="purge-duration-val">10</span>
+    </div>
+    <div id="purge-countdown" style="display:none;text-align:center;padding:12px;background:#f1faf3;border-radius:8px;margin:12px 0;">
+      <span style="font-size:28px;font-weight:700;color:#e65100;" id="purge-timer">10</span>
+      <span style="font-size:14px;color:#636261;"> 秒后停止</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button onclick="startPurge()" id="btn-purge-start" style="flex:1;padding:10px;background:#8ee5a1;color:#141414;border:none;border-radius:9999px;font-size:14px;font-weight:500;cursor:pointer;">开始排气泡</button>
+      <button onclick="closePurgeDialog()" id="btn-purge-cancel" style="flex:1;padding:10px;background:#f5f5f5;color:#636261;border:1px solid #ddd;border-radius:9999px;font-size:14px;cursor:pointer;">取消</button>
+    </div>
+    <p style="margin:12px 0 0;font-size:11px;color:#838280;">泵将以 <b>60 rpm</b> 高速运转，请确保管路出口安全</p>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// 排气泡功能
+// ============================================================
+let purgeRunning = false;
+
+document.getElementById('purge-duration').oninput = function() {
+  document.getElementById('purge-duration-val').textContent = this.value;
+};
+
+function openPurgeDialog() {
+  if (purgeRunning) return;
+  document.getElementById('purge-overlay').style.display = 'flex';
+  document.getElementById('purge-countdown').style.display = 'none';
+  document.getElementById('btn-purge-start').style.display = '';
+  document.getElementById('btn-purge-start').disabled = false;
+}
+
+function closePurgeDialog() {
+  if (purgeRunning) return;
+  document.getElementById('purge-overlay').style.display = 'none';
+}
+
+function startPurge() {
+  const direction = document.getElementById('purge-direction').value;
+  const duration = parseInt(document.getElementById('purge-duration').value);
+  document.getElementById('btn-purge-start').disabled = true;
+  document.getElementById('purge-countdown').style.display = 'block';
+  document.getElementById('purge-timer').textContent = duration;
+  purgeRunning = true;
+  elBtnStart.disabled = true;
+  elBtnPurge.disabled = true;
+  socket.emit('purge_bubbles', { direction: direction, duration_sec: duration });
+}
+
+socket.on('purge_status', function(data) {
+  if (data.status === 'running') {
+    if (data.remaining !== undefined) {
+      document.getElementById('purge-timer').textContent = data.remaining;
+    }
+    if (data.total !== undefined) {
+      appendLog('info', '排气泡已启动: ' + data.direction + ', ' + data.total + '秒');
+    }
+  } else if (data.status === 'done') {
+    purgeRunning = false;
+    elBtnPurge.disabled = false;
+    elBtnStart.disabled = false;
+    document.getElementById('purge-overlay').style.display = 'none';
+    if (data.ok) {
+      appendLog('success', data.message);
+    } else {
+      appendLog('error', '排气泡失败: ' + data.message);
+    }
+  }
+});
+</script>
+
+</body>
+</html>

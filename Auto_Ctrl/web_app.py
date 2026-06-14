@@ -38,6 +38,11 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/app')
+def app_page():
+    return render_template('app.html')
+
+
 @app.route('/video_feed')
 def video_feed():
     def generate():
@@ -154,13 +159,25 @@ def handle_start_experiment(data):
         exp.confidence_threshold = data.get('confidence', config['confidence_threshold'])
         exp.cycle_interval = data.get('cycle_interval', config.get('cycle_interval_sec', 0.5))
         exp.double_confirm = data.get('double_confirm', config.get('double_confirm', True))
+        exp.hsv_confidence_threshold = data.get('hsv_confidence_threshold', config.get('hsv_confidence_threshold', 0.35))
+        exp.endpoint_streak_frames = data.get('endpoint_streak_frames', config.get('endpoint_streak_frames', 2))
+        detection_mode = data.get('detection_mode', config.get('detection_mode', 'dl'))
 
         exp.on_update = lambda d: socketio.emit('experiment_update', d)
 
-        exp_thread = threading.Thread(target=exp.run_experiment_loop, daemon=True)
+        hsv_config = {
+            'hsv_target': config.get('hsv_target', {}),
+            'roi_size': config.get('roi_size', 200),
+            'endpoint_color': config['endpoint_color'],
+        }
+        exp_thread = threading.Thread(
+            target=exp.run_experiment_loop,
+            args=(detection_mode, hsv_config),
+            daemon=True
+        )
         exp_thread.start()
 
-        emit('log_message', {'level': 'info', 'message': f'实验已启动: {config["name"]}'})
+        emit('log_message', {'level': 'info', 'message': f'实验已启动: {config["name"]} (模式: {detection_mode})'})
 
     except Exception as e:
         emit('log_message', {'level': 'error', 'message': f'启动失败: {e}'})
@@ -170,6 +187,40 @@ def handle_start_experiment(data):
 def handle_stop_experiment():
     exp.stop()
     emit('experiment_stopped', {'message': '实验已停止，可开始新实验'})
+
+
+@socketio.on('purge_bubbles')
+def handle_purge_bubbles(data):
+    if exp.running:
+        emit('purge_status', {'ok': False, 'message': '实验进行中，请先停止实验再排气泡'})
+        return
+
+    direction = data.get('direction', 'ccw')
+    duration_sec = data.get('duration_sec', 10)
+    if duration_sec < 1:
+        duration_sec = 10
+    if duration_sec > 60:
+        duration_sec = 60
+
+    def on_start(total, dir_name):
+        socketio.emit('purge_status', {
+            'ok': True, 'status': 'running', 'total': total, 'direction': dir_name
+        })
+
+    def on_tick(remaining):
+        socketio.emit('purge_status', {
+            'ok': True, 'status': 'running', 'remaining': remaining
+        })
+
+    def on_done(ok, message):
+        socketio.emit('purge_status', {
+            'ok': ok, 'status': 'done', 'message': message
+        })
+
+    exp.purge_bubbles(
+        direction, duration_sec,
+        on_start=on_start, on_tick=on_tick, on_done=on_done
+    )
 
 
 @socketio.on('shutdown_system')

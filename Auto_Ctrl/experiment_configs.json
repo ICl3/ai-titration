@@ -7,7 +7,12 @@
         "endpoint_color": "orange",
         "titrate_speed_rpm": 2.0,
         "confidence_threshold": 0.5,
-        "cycle_interval_sec": 0.5
+        "cycle_interval_sec": 0.5,
+        "detection_mode": "dl",
+        "hsv_target": {"hMin": 8, "hMax": 30, "sMin": 80, "sMax": 255, "vMin": 60, "vMax": 255},
+        "hsv_confidence_threshold": 0.35,
+        "roi_size": 200,
+        "endpoint_streak_frames": 2
     },
     "ebt": {
         "name": "配位滴定 - 铬黑T指示剂",
@@ -17,7 +22,12 @@
         "endpoint_color": "blue",
         "titrate_speed_rpm": 2.0,
         "confidence_threshold": 0.5,
-        "cycle_interval_sec": 0.5
+        "cycle_interval_sec": 0.5,
+        "detection_mode": "dl",
+        "hsv_target": {"hMin": 90, "hMax": 140, "sMin": 80, "sMax": 255, "vMin": 40, "vMax": 255},
+        "hsv_confidence_threshold": 0.35,
+        "roi_size": 200,
+        "endpoint_streak_frames": 2
     },
     "precipitation": {
         "name": "沉淀滴定 - 铬酸钾指示剂",
@@ -27,6 +37,11 @@
         "endpoint_color": "orange",
         "titrate_speed_rpm": 2.0,
         "confidence_threshold": 0.5,
-        "cycle_interval_sec": 0.5
+        "cycle_interval_sec": 0.5,
+        "detection_mode": "dl",
+        "hsv_target": {"hMin": 0, "hMax": 20, "sMin": 100, "sMax": 255, "vMin": 60, "vMax": 255},
+        "hsv_confidence_threshold": 0.30,
+        "roi_size": 200,
+        "endpoint_streak_frames": 2
     }
 }
