@@ -372,7 +372,11 @@ class TitrationExperiment:
 
         try:
             speed = self._speed_to_oem(60)
+            # 两步操作：先设速度（停止态），再启动。泵在速度大幅变化时需要分开操作
+            _oem_wj(self.pump_ser, speed, RUN_OFF, dir_val)
+            time.sleep(0.15)
             _oem_wj(self.pump_ser, speed, RUN_ON, dir_val)
+            time.sleep(0.15)
             result = _oem_rj(self.pump_ser)
             if result is not None:
                 _, run_state, _ = result
