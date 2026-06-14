@@ -9,7 +9,6 @@ import serial
 import threading
 import numpy as np
 from datetime import datetime
-from scipy.optimize import curve_fit
 from model import resnet34
 from hsv_analyzer import HSVColorAnalyzer
 import Find_COM

@@ -3,7 +3,6 @@ from flask_socketio import SocketIO, emit
 import threading
 import json
 import os
-import sys
 import time
 import cv2
 import experiment
@@ -153,6 +152,9 @@ def handle_start_experiment(data):
             emit('log_message', {'level': 'warning',
                  'message': '泵未连接，将以模拟模式运行（AI识别正常但不实际滴液）'})
 
+        detection_mode = data.get('detection_mode', config.get('detection_mode', 'dl'))
+        exp.detection_mode = detection_mode
+
         exp.load_model(config['weights_path'], config['class_json_path'])
         exp.endpoint_color = config['endpoint_color']
         exp.pump_speed_rpm = data.get('speed_rpm', config['titrate_speed_rpm'])
@@ -161,7 +163,6 @@ def handle_start_experiment(data):
         exp.double_confirm = data.get('double_confirm', config.get('double_confirm', True))
         exp.hsv_confidence_threshold = data.get('hsv_confidence_threshold', config.get('hsv_confidence_threshold', 0.35))
         exp.endpoint_streak_frames = data.get('endpoint_streak_frames', config.get('endpoint_streak_frames', 2))
-        detection_mode = data.get('detection_mode', config.get('detection_mode', 'dl'))
 
         exp.on_update = lambda d: socketio.emit('experiment_update', d)
 
