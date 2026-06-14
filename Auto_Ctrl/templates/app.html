@@ -776,9 +776,9 @@ socket.on('experiment_update', function(data) {
     if (data.is_endpoint) {
         elCardColor.classList.add('endpoint-flash');
         appendLog('success', '视觉终点确认! 体积=' + data.volume);
-    } else if (data.pending_endpoint) {
+    } else if (data.endpoint_streak_count > 0) {
         elCardColor.classList.add('endpoint-flash');
-        appendLog('warning', '疑似终点，等待二次确认...');
+        appendLog('warning', '疑似终点 (' + data.endpoint_streak_count + '次检测)，等待确认...');
     } else {
         elCardColor.classList.remove('endpoint-flash');
     }

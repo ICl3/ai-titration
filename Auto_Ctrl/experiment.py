@@ -145,6 +145,7 @@ class TitrationExperiment:
         self.hsv_analyzer = None
         self.hsv_confidence_threshold = 0.35
         self.endpoint_streak_frames = 2
+        self.hybrid_penalty = 0.7
 
         self.on_update = None
         self.on_log = None
@@ -482,7 +483,8 @@ class TitrationExperiment:
         cap_thread = threading.Thread(target=self._capture_loop, daemon=True)
         cap_thread.start()
 
-        pending_endpoint = False
+        endpoint_streak_count = 0
+        endpoint_first_volume = 0
 
         try:
             while self.running:
@@ -526,7 +528,7 @@ class TitrationExperiment:
                         self.current_confidence = max(dl_conf, hsv_conf)
                     else:
                         self.current_color = dl_color
-                        self.current_confidence = dl_conf * 0.7  # 降权
+                        self.current_confidence = dl_conf * self.hybrid_penalty
                         self._log("warning", f"DL与HSV结果不一致，降低置信度")
                 else:
                     self.current_color, self.current_confidence = self.predict_image(filepath)
@@ -542,31 +544,39 @@ class TitrationExperiment:
                         pass
                 self.voltage_list.append(current_voltage)
 
+                threshold = self.hsv_confidence_threshold if self.detection_mode == "hsv" else self.confidence_threshold
                 is_endpoint = (
                     self.current_color == self.endpoint_color
-                    and self.current_confidence > self.confidence_threshold
+                    and self.current_confidence > threshold
                 )
 
                 endpoint_confirmed = False
 
                 if self.double_confirm:
                     if is_endpoint:
-                        if pending_endpoint:
-                            self.volume_list.pop()
-                            self.voltage_list.pop()
-                            self.confidence_list.pop()
-                            self.total_volume -= 1
-                            self.color_list[-1] = 1
+                        endpoint_streak_count += 1
+                        if endpoint_streak_count == 1:
+                            endpoint_first_volume = self.total_volume
+                        self._log("info", f"疑似终点 (第{endpoint_streak_count}次, 置信度={self.current_confidence:.3f}), 需连续{self.endpoint_streak_frames}次确认")
+                        if endpoint_streak_count >= self.endpoint_streak_frames:
+                            rollback = self.total_volume - endpoint_first_volume
+                            for _ in range(rollback):
+                                if self.volume_list: self.volume_list.pop()
+                                if self.voltage_list: self.voltage_list.pop()
+                                if self.confidence_list: self.confidence_list.pop()
+                            self.total_volume = endpoint_first_volume
+                            for i in range(1, self.endpoint_streak_frames):
+                                if len(self.color_list) >= i:
+                                    self.color_list[-i] = 1
                             endpoint_confirmed = True
-                            self._log("info", f"视觉终点确认! 体积={self.total_volume}")
+                            self._log("info", f"视觉终点确认! 连续{self.endpoint_streak_frames}次达标, 终点体积={self.total_volume}")
                         else:
-                            pending_endpoint = True
                             self.color_list.append(0)
-                            self._log("info", f"疑似终点 (第1次检测, 置信度={self.current_confidence:.3f}), 等待二次确认...")
                     else:
-                        if pending_endpoint:
-                            pending_endpoint = False
-                            self._log("info", "疑似终点未通过二次确认，继续滴定")
+                        if endpoint_streak_count > 0:
+                            self._log("info", f"疑似终点未通过确认 ({endpoint_streak_count}/{self.endpoint_streak_frames}次), 计数清零")
+                        endpoint_streak_count = 0
+                        endpoint_first_volume = 0
                         self.color_list.append(0)
                 else:
                     if is_endpoint:
@@ -583,7 +593,7 @@ class TitrationExperiment:
                         'confidence': round(self.current_confidence, 4),
                         'voltage': round(current_voltage, 4),
                         'is_endpoint': endpoint_confirmed,
-                        'pending_endpoint': pending_endpoint and not endpoint_confirmed,
+                        'endpoint_streak_count': endpoint_streak_count,
                         'volume_list': self.volume_list,
                         'voltage_list': self.voltage_list,
                         'color_list': self.color_list,

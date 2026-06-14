@@ -163,6 +163,7 @@ def handle_start_experiment(data):
         exp.double_confirm = data.get('double_confirm', config.get('double_confirm', True))
         exp.hsv_confidence_threshold = data.get('hsv_confidence_threshold', config.get('hsv_confidence_threshold', 0.35))
         exp.endpoint_streak_frames = data.get('endpoint_streak_frames', config.get('endpoint_streak_frames', 2))
+        exp.hybrid_penalty = data.get('hybrid_penalty', config.get('hybrid_penalty', 0.7))
 
         exp.on_update = lambda d: socketio.emit('experiment_update', d)
 
